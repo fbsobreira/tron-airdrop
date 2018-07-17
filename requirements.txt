@@ -1,0 +1,6 @@
+pymongo
+requests
+terminal_banner
+colorama
+termcolor
+pyfiglet
