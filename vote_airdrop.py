@@ -33,11 +33,13 @@ if API_URL is None:
 parser = argparse.ArgumentParser()
 parser.add_argument('--address',
                     dest='address', help='Adress from')
+parser.add_argument('--sr',
+                    dest='sr', help='SR Adress to collect votes')
 parser.add_argument('--token',
                     dest='token', help='Token to send')
 
-parser.add_argument('--amount',
-                    dest='amount', help='Amount To Token')
+parser.add_argument('--ratio',
+                    dest='ratio', help='Votes Ratio')
 
 
 cprint(figlet_format('     TRON     ', font='starwars'),
@@ -69,46 +71,48 @@ def printProgressBar (iteration, total, prefix = '', suffix = '', decimals = 1, 
 
 if __name__ == "__main__":
     args = parser.parse_args()
-    if (args.address is None or args.token is None):
-        logging.error('Please try: python run.py --address=ADDRESS --token=TOKENNAME')
+    if (args.address is None or args.token is None or args.sr is None):
+        logging.error('Please try: python run.py --address=ADDRESS --sr=SRADDRESS --token=TOKENNAME')
         logging.error('App closed...')
         sys.exit(0)
-    if (args.amount is None):
-        args.amount=1
+    if (args.ratio is None):
+        args.ratio=1
     else:
-        args.amount = int(args.amount)
+        args.ratio = float(args.ratio)
 
     # get list of witness
     resultWitnesses = requests.get(API_URL+"/api/witness").json()
 
     # ToSend DB
-    #db['tosend'].remove()
     tosend = db['tosend']
+    tosend.remove()
     # Get voters and send
-    for W in resultWitnesses:
-        start = 0
-        limit = 100
-        print('Get voters from: '+W['address'])
-        voters = requests.get(API_URL+"/api/vote", params={'limit': 0, 'candidate': W['address']}).json()
+    start = 0
+    limit = 100
+    print('Get voters from: '+args.sr)
+    voters = requests.get(API_URL+"/api/vote", params={'limit': 0, 'candidate': args.sr}).json()
         
-        totalVotes = voters['total'] 
-        pages = ceil(totalVotes/limit)
-
-        for pos in range(0, pages):
-            voters = requests.get(API_URL+"/api/vote", params={'limit': limit, 'start': pos*limit, 'candidate': W['address']}).json()
-            for item in voters["data"]: 
+    totalVotes = voters['total'] 
+    pages = ceil(totalVotes/limit)
+    totalSending = 0
+    for pos in range(0, pages):
+        voters = requests.get(API_URL+"/api/vote", params={'limit': limit, 'start': pos*limit, 'candidate': args.sr}).json()
+        for item in voters["data"]: 
+            # cant send fraction
+            if (ceil(totalSending+item['votes']*args.ratio)>=1):
                 tosend.insert_one(item)
-       
-        sleep(1)            
-    
+                totalSending=totalSending+ceil(item['votes']*args.ratio)
+
     # get account info
     resultBalance = requests.get(API_URL+"/api/account/"+args.address).json()
    
     bw = resultBalance['bandwidth']['freeNetRemaining']+resultBalance['bandwidth']['netRemaining']
+    balance = 0
     for b in resultBalance['balances']:
         if b['name']==args.token:
             balance = b['balance']
             break
+
     if balance==0:
         logging.error('No balance found!')
         logging.error('App closed...')
@@ -116,15 +120,13 @@ if __name__ == "__main__":
 
     
     # total sending
-    sendto = tosend.find().distinct("voterAddress")
-    totalSending = len(sendto)*args.amount
+    sendto = tosend.find()
 
-    info_text = "Your have {:,.0f} {},\nand is sending {:,.0f} {}.\nYour BW is {:,.0f},\nAnd it is estimated {:,.0f}BW".format(
-        balance,args.token,totalSending,args.token,bw,len(sendto)*200)
+    info_text = "Your have {:,.0f} {},\nand is sending {:,.0f} {}.\nYour BW is {:,.0f},\nAnd it is estimated {:,.0f}BW\nTotal number of voters: {}".format(
+        balance,args.token,totalSending,args.token,bw,sendto.count()*198, sendto.count())
     print(terminal_banner.Banner(info_text))
     if totalSending>balance:
         print('Only the first {} will receive.'.format(ceil(balance/args.amount)))
-    
     wd = input("Do you confirm this operation? (Y/n)")
     if wd!= "y":
         logging.error('User did not confirm!')
@@ -134,23 +136,22 @@ if __name__ == "__main__":
     # get 
     
     sentto = db['sentto']
-    l = len(sendto)
-    if totalSending>balance:
-        l = ceil(balance/args.amount)
+    l = sendto.count()
+
     printProgressBar(0, l, prefix = 'Sending...:', suffix = 'Complete', length = 50)
     i=1
     cerror=0
     for s in sendto:
-        data = {"broadcast": True, "key": PK, "contract": {"amount": args.amount, 
-            "ownerAddress": args.address, "toAddress": s, "assetName": args.token}
+        data = {"broadcast": True, "key": PK, "contract": {"amount": ceil(s['votes']*args.ratio), 
+            "ownerAddress": args.address, "toAddress": s['voterAddress'], "assetName": args.token}
         }
         try:
             result = requests.post(API_URL+"/api/transaction-builder/contract/transferasset", json=data).json()
             if (result["result"]["code"]=="SUCCESS"):
                 record = {
                     "from": args.address,
-                    "to": s,
-                    "amount": args.amount,
+                    "to": s['voterAddress'],
+                    "amount": ceil(s['votes']*args.ratio),
                     "token": args.token,
                     "hash": result["transaction"]["hash"],
                     "update": datetime.utcnow()

@@ -20,7 +20,12 @@ pip install -r requirements.txt
 
 # Example transfer 
 ```bash
-python run.py --address=TUEZSdKsoDHQMeZwihtdoBiN46zxhGWYdH --token=Perogies --amount=1
+    python run.py --address=TUEZSdKsoDHQMeZwihtdoBiN46zxhGWYdH --token=Perogies --amount=1
+```
+
+# Example AirDrop based on votes with ratio
+```bash
+    python vote_airdrop.py --address=TUkWD1V2bws2Wt4Lu9EqF9AxnL8vWtNvHy --token=CryptoChain --sr=TKSXDA8HfE9E1y39RczVQ1ZascUEtaSToF --ratio=0.01
 ```
 
 #### CryptoChain
